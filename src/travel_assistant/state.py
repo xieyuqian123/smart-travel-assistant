@@ -4,6 +4,8 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph.message import add_messages
 
+from travel_assistant.schemas import TripSchema
+
 
 class TravelState(TypedDict):
     """The state of the travel assistant graph.
@@ -19,3 +21,4 @@ class TravelState(TypedDict):
     destination: str | None
     travel_dates: dict | None
     preferences: dict | None
+    trip_plan: TripSchema | None

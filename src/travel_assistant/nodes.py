@@ -1,5 +1,10 @@
 """Node definitions for the travel assistant graph."""
 
+from langchain_core.messages import HumanMessage, SystemMessage
+
+from travel_assistant.config import get_llm
+from travel_assistant.prompts import PLANNER_SYSTEM_PROMPT, get_planner_user_prompt
+from travel_assistant.schemas import TripSchema
 from travel_assistant.state import TravelState
 
 
@@ -35,8 +40,25 @@ def plan_itinerary(state: TravelState) -> TravelState:
     Returns:
         Updated state with itinerary information.
     """
-    # TODO: Implement itinerary planning logic
-    return state
+    structured_llm = get_llm(structured_output=TripSchema)
+
+    destination = state.get("destination", "determined by the AI")
+    dates = state.get("travel_dates", {})
+    preferences = state.get("preferences", {})
+    
+    system_prompt = PLANNER_SYSTEM_PROMPT
+    user_prompt = get_planner_user_prompt(destination, dates, preferences)
+
+    try:
+        trip_plan = structured_llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ])
+        return {"trip_plan": trip_plan}
+    except Exception as e:
+        # In a real app, handle error gracefully
+        print(f"Error generating itinerary: {e}")
+        return state
 
 
 def generate_response(state: TravelState) -> TravelState:
