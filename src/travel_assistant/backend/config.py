@@ -36,6 +36,7 @@ def get_llm(structured_output: Optional[Any] = None) -> ChatOpenAI | Any:
         temperature=temperature,
         api_key=api_key,
         base_url=base_url,
+        max_tokens=16384,  # Increase max tokens for detailed itineraries
     )
 
     if structured_output:

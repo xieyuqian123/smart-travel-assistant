@@ -4,7 +4,7 @@ from typing import Annotated, TypedDict
 
 from langgraph.graph.message import add_messages
 
-from travel_assistant.schemas import TripSchema
+from travel_assistant.backend.schemas import TripSchema
 
 
 class TravelState(TypedDict):

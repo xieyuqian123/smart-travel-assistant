@@ -3,9 +3,9 @@ from dotenv import load_dotenv
 from typing import List, Optional
 from pydantic import BaseModel
 
-from travel_assistant.nodes import generate_response
-from travel_assistant.state import TravelState
-from travel_assistant.schemas import TripSchema, DailyItinerarySchema, TripNodeSchema, CoordinateSchema, NoteSchema
+from travel_assistant.backend.agents.nodes import generate_response
+from travel_assistant.backend.state import TravelState
+from travel_assistant.backend.schemas import TripSchema, DailyItinerarySchema, TripNodeSchema, CoordinateSchema, NoteSchema
 
 load_dotenv()
 

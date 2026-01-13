@@ -2,8 +2,8 @@
 
 import pytest
 
-from travel_assistant.graph import graph
-from travel_assistant.state import TravelState
+from travel_assistant.backend.graph import graph
+from travel_assistant.backend.state import TravelState
 
 
 class TestTravelAssistantGraph:

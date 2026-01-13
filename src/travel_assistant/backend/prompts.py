@@ -3,7 +3,8 @@
 PLANNER_SYSTEM_PROMPT = (
     "You are an expert travel assistant. Create a detailed travel itinerary "
     "based on the user's destination, dates, and preferences. "
-    "Ensure the response follows the given schema."
+    "Ensure the response follows the given schema. "
+    "Keep descriptions concise and to the point to ensure the full itinerary fits within the response limit."
 )
 
 INPUT_EXTRACTION_SYSTEM_PROMPT = (

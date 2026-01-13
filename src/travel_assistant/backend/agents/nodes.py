@@ -2,10 +2,10 @@
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from travel_assistant.config import get_llm
-from travel_assistant.prompts import INPUT_EXTRACTION_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT, RESPONSE_SYSTEM_PROMPT, get_planner_user_prompt
-from travel_assistant.schemas import InputSchema, TripSchema
-from travel_assistant.state import TravelState
+from travel_assistant.backend.config import get_llm
+from travel_assistant.backend.prompts import INPUT_EXTRACTION_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT, RESPONSE_SYSTEM_PROMPT, get_planner_user_prompt
+from travel_assistant.backend.schemas import InputSchema, TripSchema
+from travel_assistant.backend.state import TravelState
 
 
 def process_input(state: TravelState) -> TravelState:

@@ -50,6 +50,16 @@ cp .env.example .env
 
 ## Usage
 
+### Web Interface (Recommended)
+
+To launch the interactive web interface:
+
+```bash
+uv run streamlit run src/travel_assistant/app.py
+```
+
+### Programmatic Usage
+
 ```python
 from travel_assistant.graph import graph
 

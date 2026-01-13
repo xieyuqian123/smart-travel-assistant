@@ -2,8 +2,8 @@
 
 from langgraph.graph import END, StateGraph
 
-from travel_assistant.nodes import generate_response, plan_itinerary, process_input
-from travel_assistant.state import TravelState
+from travel_assistant.backend.agents.nodes import generate_response, plan_itinerary, process_input
+from travel_assistant.backend.state import TravelState
 
 # Create the graph
 builder = StateGraph(TravelState)

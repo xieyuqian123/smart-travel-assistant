@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
-from travel_assistant.nodes import plan_itinerary
-from travel_assistant.state import TravelState
+from travel_assistant.backend.agents.nodes import plan_itinerary
+from travel_assistant.backend.state import TravelState
 
 load_dotenv()
 

@@ -1,8 +1,8 @@
 import os
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
-from travel_assistant.nodes import process_input
-from travel_assistant.state import TravelState
+from travel_assistant.backend.agents.nodes import process_input
+from travel_assistant.backend.state import TravelState
 
 load_dotenv()
 

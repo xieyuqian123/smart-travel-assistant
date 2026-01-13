@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 from langchain_core.messages import HumanMessage
-from travel_assistant.graph import graph
+from travel_assistant.backend.graph import graph
 
 load_dotenv()
 
