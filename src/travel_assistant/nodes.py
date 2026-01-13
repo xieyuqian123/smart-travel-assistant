@@ -1,10 +1,10 @@
 """Node definitions for the travel assistant graph."""
 
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from travel_assistant.config import get_llm
-from travel_assistant.prompts import PLANNER_SYSTEM_PROMPT, get_planner_user_prompt
-from travel_assistant.schemas import TripSchema
+from travel_assistant.prompts import INPUT_EXTRACTION_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT, RESPONSE_SYSTEM_PROMPT, get_planner_user_prompt
+from travel_assistant.schemas import InputSchema, TripSchema
 from travel_assistant.state import TravelState
 
 
@@ -22,8 +22,30 @@ def process_input(state: TravelState) -> TravelState:
     Returns:
         Updated state with extracted information.
     """
-    # TODO: Implement input processing logic
-    return state
+    llm = get_llm(structured_output=InputSchema)
+    
+    # Format conversation history
+    history = "\n".join([f"{msg.type}: {msg.content}" for msg in state["messages"]])
+    
+    try:
+        extraction = llm.invoke([
+            SystemMessage(content=INPUT_EXTRACTION_SYSTEM_PROMPT),
+            HumanMessage(content=f"Conversation History:\n{history}")
+        ])
+        
+        updates = {}
+        if extraction.destination:
+            updates["destination"] = extraction.destination
+        if extraction.start_date and extraction.end_date:
+            updates["travel_dates"] = {"start": extraction.start_date, "end": extraction.end_date}
+        if extraction.interests:
+            updates["preferences"] = {"interests": extraction.interests}
+            
+        return updates
+        
+    except Exception as e:
+        print(f"Error extracting input: {e}")
+        return state
 
 
 def plan_itinerary(state: TravelState) -> TravelState:
@@ -73,5 +95,19 @@ def generate_response(state: TravelState) -> TravelState:
     Returns:
         Updated state with response message.
     """
-    # TODO: Implement response generation logic
-    return state
+    trip_plan = state.get("trip_plan")
+    
+    if not trip_plan:
+        return {"messages": [AIMessage(content="I'm sorry, I couldn't generate a travel plan for you at this time.")]}
+    
+    llm = get_llm()
+    system_prompt = RESPONSE_SYSTEM_PROMPT
+    user_prompt = f"Here is the trip plan:\n{trip_plan.model_dump_json()}"
+    
+    response = llm.invoke([
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt)
+    ])
+    
+    return {"messages": [response]}
+

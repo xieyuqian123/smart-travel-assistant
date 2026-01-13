@@ -27,6 +27,10 @@ def get_llm(structured_output: Optional[Any] = None) -> ChatOpenAI | Any:
         # We might want to raise an error or just warn, but letting LangChain handle it is usually fine
         pass
 
+    if not base_url:
+        # We might want to raise an error or just warn, but letting LangChain handle it is usually fine
+        pass
+
     llm = ChatOpenAI(
         model=model_name,
         temperature=temperature,

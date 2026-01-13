@@ -4,6 +4,16 @@ from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
+class InputSchema(BaseModel):
+    """Schema for extracted user input."""
+    
+    destination: Optional[str] = Field(None, description="The travel destination")
+    start_date: Optional[str] = Field(None, description="Start date of the trip in YYYY-MM-DD format")
+    end_date: Optional[str] = Field(None, description="End date of the trip in YYYY-MM-DD format")
+    budget: Optional[str] = Field(None, description="Approximate budget for the trip")
+    interests: List[str] = Field(default_factory=list, description="List of user interests or activities")
+
+
 
 class CoordinateSchema(BaseModel):
     """Schema for geographical coordinates."""
