@@ -6,6 +6,7 @@ from travel_assistant.backend.config import get_llm
 from travel_assistant.backend.prompts import INPUT_EXTRACTION_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT, RESPONSE_SYSTEM_PROMPT, get_planner_user_prompt
 from travel_assistant.backend.schemas import InputSchema, TripSchema
 from travel_assistant.backend.state import TravelState
+from travel_assistant.backend.tools import search_destinations, get_weather, search_hotels
 
 
 def process_input(state: TravelState) -> TravelState:
@@ -110,4 +111,53 @@ def generate_response(state: TravelState) -> TravelState:
     ])
     
     return {"messages": [response]}
+
+
+async def attraction_search_agent(state: TravelState) -> TravelState:
+    """Agent that searches for attractions using MCP."""
+    destination = state.get("destination")
+    if not destination:
+        return {"attractions_info": "No destination specified for attraction search."}
+
+    try:
+        # Call the MCP tool
+        result = await search_destinations.ainvoke({"query": destination})
+        return {"attractions_info": result}
+    except Exception as e:
+        return {"attractions_info": f"Failed to fetch attractions: {str(e)}"}
+
+
+async def weather_query_agent(state: TravelState) -> TravelState:
+    """Agent that queries weather using MCP."""
+    destination = state.get("destination")
+    if not destination:
+        return {"weather_info": "No destination specified for weather query."}
+
+    dates = state.get("travel_dates", {}) or {}
+    start_date = dates.get("start", "today")
+
+    try:
+        result = await get_weather.ainvoke({"location": destination, "date": start_date})
+        return {"weather_info": result}
+    except Exception as e:
+        return {"weather_info": f"Failed to fetch weather: {str(e)}"}
+
+
+async def hotel_info_agent(state: TravelState) -> TravelState:
+    """Agent that searches for hotels using MCP."""
+    destination = state.get("destination")
+    if not destination:
+        return {"hotel_info": "No destination specified for hotel search."}
+
+    dates = state.get("travel_dates", {}) or {}
+    start_date = dates.get("start", "today")
+    end_date = dates.get("end", "tomorrow")
+
+    try:
+        result = await search_hotels.ainvoke(
+            {"location": destination, "check_in": start_date, "check_out": end_date}
+        )
+        return {"hotel_info": result}
+    except Exception as e:
+        return {"hotel_info": f"Failed to fetch hotels: {str(e)}"}
 

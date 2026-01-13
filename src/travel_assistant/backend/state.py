@@ -22,3 +22,6 @@ class TravelState(TypedDict):
     travel_dates: dict | None
     preferences: dict | None
     trip_plan: TripSchema | None
+    attractions_info: str | None
+    weather_info: str | None
+    hotel_info: str | None
