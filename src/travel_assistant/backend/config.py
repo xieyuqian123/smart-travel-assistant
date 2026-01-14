@@ -9,25 +9,29 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-def get_llm(structured_output: Optional[Any] = None) -> ChatOpenAI | Any:
+def get_llm(structured_output: Optional[Any] = None, model_key: str = "PLANNER") -> ChatOpenAI | Any:
     """Get the configured LLM instance.
 
     Args:
         structured_output: Optional schema to enforce structured output.
+        model_key: Key suffix for model configuration (e.g., "PLANNER" or "TOOL").
+                   Looks for env vars like MODEL_NAME_PLANNER or MODEL_NAME_TOOL.
+                   Defaults to "PLANNER".
 
     Returns:
         Configured ChatOpenAI instance (or structured output runnable).
     """
-    model_name = os.getenv("MODEL_NAME", "gpt-4o")
-    api_key = os.getenv("OPENAI_API_KEY")
-    base_url = os.getenv("OPENAI_API_BASE")
-    temperature = float(os.getenv("TEMPERATURE", "0.6"))
+    # Default to generic MODEL_NAME if specific key not found
+    default_model = os.getenv("MODEL_NAME", "gpt-4o")
+    model_name = os.getenv(f"MODEL_NAME_{model_key}", default_model)
+    
+    # Allow overriding API key/base per model if needed, but usually shared
+    api_key = os.getenv(f"OPENAI_API_KEY_{model_key}") or os.getenv("OPENAI_API_KEY")
+    base_url = os.getenv(f"OPENAI_API_BASE_{model_key}") or os.getenv("OPENAI_API_BASE")
+    
+    temperature = float(os.getenv(f"TEMPERATURE_{model_key}", os.getenv("TEMPERATURE", "0.6")))
 
     if not api_key:
-        # We might want to raise an error or just warn, but letting LangChain handle it is usually fine
-        pass
-
-    if not base_url:
         # We might want to raise an error or just warn, but letting LangChain handle it is usually fine
         pass
 

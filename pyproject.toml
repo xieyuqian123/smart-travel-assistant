@@ -15,6 +15,7 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "streamlit>=1.52.2",
     "mcp",
+    "amap-mcp-server",
 ]
 
 [project.optional-dependencies]

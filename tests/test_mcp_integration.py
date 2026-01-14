@@ -13,17 +13,16 @@ from travel_assistant.backend.prompts import (
 from travel_assistant.backend.schemas import InputSchema, TripSchema
 
 class TestMCPIntegration(unittest.TestCase):
-    @patch("travel_assistant.backend.tools.call_mcp_tool")
-    def test_graph_flow(self, mock_call_mcp):
-        # Setup mock returns for MCP tools
-        mock_call_mcp.side_effect = [
-            "Eiffel Tower, Louvre",  # Attraction
-            "Sunny, 20C",            # Weather
-            "Hotel Ritz",            # Hotel
-        ]
+    @patch("travel_assistant.backend.agents.nodes.attraction_agent_executor.ainvoke")
+    @patch("travel_assistant.backend.agents.nodes.weather_agent_executor.ainvoke")
+    @patch("travel_assistant.backend.agents.nodes.hotel_agent_executor.ainvoke")
+    def test_graph_flow(self, mock_hotel, mock_weather, mock_attraction):
+        # Setup mock returns for Sub-Agents
+        mock_attraction.return_value = {"messages": [AIMessage(content="Eiffel Tower, Louvre")]}
+        mock_weather.return_value = {"messages": [AIMessage(content="Sunny, 20C")]}
+        mock_hotel.return_value = {"messages": [AIMessage(content="Hotel Ritz")]}
 
         # Initial state
-        # We provide enough info so extraction might be redundant but will run
         initial_state = {
             "messages": [],
             "destination": "Paris",
@@ -35,8 +34,6 @@ class TestMCPIntegration(unittest.TestCase):
             mock_llm = MagicMock()
             
             def mock_invoke_side_effect(input_msgs, *args, **kwargs):
-                # input_msgs is usually a list of messages
-                # Check first message for system prompt
                 if not input_msgs or not hasattr(input_msgs[0], "content"):
                     return AIMessage(content="Fallback")
                 
@@ -66,7 +63,6 @@ class TestMCPIntegration(unittest.TestCase):
             mock_get_llm.return_value = mock_llm
             
             # Using asyncio.run for async graph
-            # This requires 'ainvoke'
             result = asyncio.run(graph.ainvoke(initial_state))
             
             # Verify flow and state updates
@@ -79,15 +75,10 @@ class TestMCPIntegration(unittest.TestCase):
             self.assertIn("hotel_info", result)
             self.assertEqual(result["hotel_info"], "Hotel Ritz")
             
-            # Verify MCP calls count
-            # Expect 3 calls: Attraction, Weather, Hotel
-            self.assertEqual(mock_call_mcp.call_count, 3)
-            
-            # Verify specific call args
-            # First call should be Attraction
-            args0, _ = mock_call_mcp.call_args_list[0]
-            self.assertEqual(args0[2], "search_destinations")  # tool_name
-            self.assertEqual(args0[3], {"query": "Paris"})     # tool_args
+            # Verify sub-agents were called
+            mock_attraction.assert_called_once()
+            mock_weather.assert_called_once()
+            mock_hotel.assert_called_once()
 
 if __name__ == "__main__":
     unittest.main()

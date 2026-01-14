@@ -1,57 +1,29 @@
-"""Tool definitions for the travel assistant using MCP."""
-
-import os
 from typing import Any, Dict, List, Optional
+import os
+import sys
 
 from langchain_core.tools import tool
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
+from travel_assistant.backend.mcp_client import MCPClientManager
 
+# AMap Configuration
+AMAP_API_KEY = os.environ.get("AMAP_MAPS_API_KEY")
 
-async def call_mcp_tool(
-    command: str,
-    args: List[str],
-    tool_name: str,
-    tool_args: Dict[str, Any],
-    env: Optional[Dict[str, str]] = None,
-) -> str:
-    """Connect to an MCP server and call a tool."""
-    try:
-        if not command:
-            return f"Error: No command configured for {tool_name}"
+# Initialize AMap MCP Manager
+# We assume the amap-mcp-server is installed and runnable via "python3 -m amap_mcp_server"
+# or similar. Adjust command/args as per actual package structure.
+AMAP_CMD = os.environ.get("AMAP_MCP_CMD", sys.executable)
+AMAP_ARGS = os.environ.get("AMAP_MCP_ARGS", "-m amap_mcp_server").split()
 
-        server_params = StdioServerParameters(command=command, args=args, env=env)
+amap_env = os.environ.copy()
+if AMAP_API_KEY:
+    amap_env["AMAP_MAPS_API_KEY"] = AMAP_API_KEY
 
-        async with stdio_client(server_params) as (read, write):
-            async with ClientSession(read, write) as session:
-                await session.initialize()
-
-                result = await session.call_tool(tool_name, tool_args)
-
-                if result.isError:
-                    return f"Tool execution failed: {result.content}"
-
-                text_output = "\n".join(
-                    [c.text for c in result.content if c.type == "text"]
-                )
-                return text_output
-
-    except Exception as e:
-        return f"Error calling MCP tool {tool_name}: {str(e)}"
-
-
-# Default configurations (can be overridden by env vars or config)
-# Using placeholder "python3" and "-m mcp_server_..." for now.
-ATTRACTION_CMD = os.environ.get("ATTRACTION_MCP_CMD", "python3")
-ATTRACTION_ARGS = os.environ.get(
-    "ATTRACTION_MCP_ARGS", "-m mcp_server_attraction"
-).split()
-
-WEATHER_CMD = os.environ.get("WEATHER_MCP_CMD", "python3")
-WEATHER_ARGS = os.environ.get("WEATHER_MCP_ARGS", "-m mcp_server_weather").split()
-
-HOTEL_CMD = os.environ.get("HOTEL_MCP_CMD", "python3")
-HOTEL_ARGS = os.environ.get("HOTEL_MCP_ARGS", "-m mcp_server_hotel").split()
+amap_manager = MCPClientManager(
+    command=AMAP_CMD,
+    args=AMAP_ARGS,
+    env=amap_env,
+    server_name="amap_mcp_server"
+)
 
 
 @tool
@@ -61,38 +33,37 @@ async def search_destinations(query: str) -> str:
     Args:
         query: The search query for destinations.
     """
-    return await call_mcp_tool(
-        ATTRACTION_CMD, ATTRACTION_ARGS, "search_destinations", {"query": query}
+    # Mapping to AMap tool: maps_text_search
+    return await amap_manager.execute_tool(
+        "maps_text_search", {"keywords": query, "citylimit": "false"}
     )
 
 
 @tool
-async def get_weather(location: str, date: str) -> str:
+async def get_weather(location: str, city_adcode: str = "") -> str:
     """Get weather information.
 
     Args:
-        location: City/Place name
-        date: Date in YYYY-MM-DD
+        location: City/Place name (for display/context).
+        city_adcode: The adcode of the city (required by AMap weather, or city name).
     """
-    return await call_mcp_tool(
-        WEATHER_CMD, WEATHER_ARGS, "get_weather", {"location": location, "date": date}
+    # Mapping to AMap tool: maps_weather
+    # AMap 'maps_weather' takes 'city' arg (adcode or name)
+    return await amap_manager.execute_tool(
+        "maps_weather", {"city": city_adcode if city_adcode else location}
     )
 
 
 @tool
-async def search_hotels(location: str, check_in: str, check_out: str) -> str:
+async def search_hotels(location: str, keyword: str = "hotel") -> str:
     """Search for hotels.
 
     Args:
-        location: City/Place name
-        check_in: YYYY-MM-DD
-        check_out: YYYY-MM-DD
+        location: City/Place name or adcode.
+        keyword: Keyword to search (default: "hotel").
     """
-    return await call_mcp_tool(
-        HOTEL_CMD,
-        HOTEL_ARGS,
-        "search_hotels",
-        {"location": location, "check_in": check_in, "check_out": check_out},
+    return await amap_manager.execute_tool(
+        "maps_text_search", {"keywords": keyword, "city": location}
     )
 
 
@@ -101,15 +72,16 @@ async def search_restaurants(location: str, cuisine: Optional[str] = None) -> st
     """Search for restaurants in a location.
 
     Args:
-        location: The location to search restaurants in.
+        location: The location/city to search restaurants in.
         cuisine: Optional cuisine type filter.
 
     Returns:
         List of recommended restaurants.
     """
-    # Placeholder for non-MCP tool or future implementation
-    cuisine_str = f" ({cuisine} cuisine)" if cuisine else ""
-    return f"Restaurants in {location}{cuisine_str} (Mock Data)"
+    query = f"{cuisine} restaurant" if cuisine else "restaurant"
+    return await amap_manager.execute_tool(
+        "maps_text_search", {"keywords": query, "city": location}
+    )
 
 
 tools = [search_destinations, get_weather, search_hotels, search_restaurants]

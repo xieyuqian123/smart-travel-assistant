@@ -113,16 +113,31 @@ def generate_response(state: TravelState) -> TravelState:
     return {"messages": [response]}
 
 
+from langgraph.prebuilt import create_react_agent
+
+# Initialize Sub-Agents
+# We use a smaller/faster model for these agents if configured (model_key="TOOL")
+tool_llm = get_llm(model_key="TOOL")
+
+attraction_agent_executor = create_react_agent(tool_llm, [search_destinations])
+weather_agent_executor = create_react_agent(tool_llm, [get_weather])
+hotel_agent_executor = create_react_agent(tool_llm, [search_hotels])
+
+
 async def attraction_search_agent(state: TravelState) -> TravelState:
     """Agent that searches for attractions using MCP."""
     destination = state.get("destination")
     if not destination:
         return {"attractions_info": "No destination specified for attraction search."}
 
+    prompt = f"Find top attractions and sights in {destination}. Provide a concise summary."
+    
     try:
-        # Call the MCP tool
-        result = await search_destinations.ainvoke({"query": destination})
-        return {"attractions_info": result}
+        # Invoke the sub-agent
+        result = await attraction_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
+        # Extract the final response from the agent
+        last_message = result["messages"][-1]
+        return {"attractions_info": last_message.content}
     except Exception as e:
         return {"attractions_info": f"Failed to fetch attractions: {str(e)}"}
 
@@ -135,10 +150,13 @@ async def weather_query_agent(state: TravelState) -> TravelState:
 
     dates = state.get("travel_dates", {}) or {}
     start_date = dates.get("start", "today")
+    
+    prompt = f"Check the weather in {destination} for {start_date}. Provide a concise summary."
 
     try:
-        result = await get_weather.ainvoke({"location": destination, "date": start_date})
-        return {"weather_info": result}
+        result = await weather_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
+        last_message = result["messages"][-1]
+        return {"weather_info": last_message.content}
     except Exception as e:
         return {"weather_info": f"Failed to fetch weather: {str(e)}"}
 
@@ -152,12 +170,13 @@ async def hotel_info_agent(state: TravelState) -> TravelState:
     dates = state.get("travel_dates", {}) or {}
     start_date = dates.get("start", "today")
     end_date = dates.get("end", "tomorrow")
+    
+    prompt = f"Find available hotels in {destination} from {start_date} to {end_date}. Provide a concise summary."
 
     try:
-        result = await search_hotels.ainvoke(
-            {"location": destination, "check_in": start_date, "check_out": end_date}
-        )
-        return {"hotel_info": result}
+        result = await hotel_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
+        last_message = result["messages"][-1]
+        return {"hotel_info": last_message.content}
     except Exception as e:
         return {"hotel_info": f"Failed to fetch hotels: {str(e)}"}
 
