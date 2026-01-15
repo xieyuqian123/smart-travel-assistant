@@ -24,7 +24,10 @@ RESPONSE_SYSTEM_PROMPT = (
 
 
 def get_planner_user_prompt(
-    destination: str, dates: dict | None = None, preferences: dict | None = None
+    destination: str, 
+    dates: dict | None = None, 
+    preferences: dict | None = None,
+    feedback: str | None = None
 ) -> str:
     """Construct the user prompt for the planner.
 
@@ -41,4 +44,6 @@ def get_planner_user_prompt(
         user_prompt += f"Dates: {dates}\n"
     if preferences:
         user_prompt += f"Preferences: {preferences}\n"
+    if feedback:
+        user_prompt += f"\nIMPORTANT FEEDBACK FROM PREVIOUS ATTEMPT:\n{feedback}\n"
     return user_prompt

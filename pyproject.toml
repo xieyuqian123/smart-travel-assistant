@@ -16,6 +16,7 @@ dependencies = [
     "streamlit>=1.52.2",
     "mcp",
     "amap-mcp-server",
+    "pydeck>=0.9.1",
 ]
 
 [project.optional-dependencies]

@@ -7,6 +7,7 @@ from travel_assistant.backend.prompts import INPUT_EXTRACTION_SYSTEM_PROMPT, PLA
 from travel_assistant.backend.schemas import InputSchema, TripSchema
 from travel_assistant.backend.state import TravelState
 from travel_assistant.backend.tools import search_destinations, get_weather, search_hotels
+from travel_assistant.backend.tools.calculator import calculate_itinerary_cost, parse_cost
 
 
 def process_input(state: TravelState) -> TravelState:
@@ -68,9 +69,10 @@ def plan_itinerary(state: TravelState) -> TravelState:
     destination = state.get("destination", "determined by the AI")
     dates = state.get("travel_dates", {})
     preferences = state.get("preferences", {})
+    feedback = state.get("planner_feedback")
     
     system_prompt = PLANNER_SYSTEM_PROMPT
-    user_prompt = get_planner_user_prompt(destination, dates, preferences)
+    user_prompt = get_planner_user_prompt(destination, dates, preferences, feedback)
 
     try:
         trip_plan = structured_llm.invoke([
@@ -113,6 +115,93 @@ def generate_response(state: TravelState) -> TravelState:
     return {"messages": [response]}
 
 
+def validate_budget(state: TravelState) -> TravelState:
+    """Validate if the trip plan is within budget.
+
+    Args:
+        state: The current graph state.
+
+    Returns:
+        Updated state with budget status and feedback.
+    """
+    trip_plan = state.get("trip_plan")
+    if not trip_plan:
+        return {"budget_status": "NO_PLAN"}
+        
+    budget_str = trip_plan.budget
+    if not budget_str:
+        # No budget specified in the plan (maybe user didn't provide one?)
+        # We can try falling back to initial input, but for now we assume it's OK
+        return {"budget_status": "OK"}
+        
+    budget_limit = parse_cost(budget_str)
+    if budget_limit <= 0:
+        return {"budget_status": "OK"} # Treat invalid budget as no limit
+        
+    total_cost = calculate_itinerary_cost(trip_plan)
+    
+    retries = state.get("planning_retries", 0)
+    
+    if total_cost > budget_limit:
+        return {
+            "budget_status": "OVER_BUDGET",
+            "planner_feedback": f"The current plan costs {total_cost}, which exceeds the budget of {budget_limit}. Please revise the itinerary to reduce costs (e.g., cheaper hotels, fewer expensive activities).",
+            "planning_retries": retries + 1
+        }
+    
+    return {"budget_status": "OK"}
+
+
+def refine_itinerary(state: TravelState) -> TravelState:
+    """Refine the itinerary with gathered information (costs, descriptions).
+    
+    This node runs after the search agents. It uses an LLM to update the 
+    TripSchema with the specific details found by the agents.
+    """
+    trip_plan = state.get("trip_plan")
+    if not trip_plan:
+        return {} # No plan to refine
+        
+    attractions_info = state.get("attractions_info", "")
+    weather_info = state.get("weather_info", "")
+    hotel_info = state.get("hotel_info", "")
+    
+    # If no info gathered, skip
+    if not (attractions_info or weather_info or hotel_info):
+        return {}
+        
+    llm = get_llm(structured_output=TripSchema)
+    
+    system_prompt = (
+        "You are a travel assistant editor. Your goal is to UPDATE an existing travel itinerary "
+        "with new information gathered from external tools. "
+        "Focus on updating COSTS, TIMINGS, and DESCRIPTIONS. "
+        "If a specific cost was found (e.g. for a hotel or ticket), update the 'cost' field "
+        "of the corresponding node. "
+        "Do NOT change the structure of the trip or the destinations unless necessary. "
+        "Maintain the original plan as much as possible, just enrich it."
+    )
+    
+    user_prompt = (
+        f"Original Plan: {trip_plan.model_dump_json()}\n\n"
+        f"Gathered Information:\n"
+        f"Attractions Info: {attractions_info}\n"
+        f"Weather Info: {weather_info}\n"
+        f"Hotel Info: {hotel_info}\n\n"
+        "Please output the updated TripSchema."
+    )
+    
+    try:
+        updated_plan = llm.invoke([
+            SystemMessage(content=system_prompt),
+            HumanMessage(content=user_prompt)
+        ])
+        return {"trip_plan": updated_plan}
+    except Exception as e:
+        print(f"Error refining itinerary: {e}")
+        return {} # Keep original plan on error
+
+
 from langgraph.prebuilt import create_react_agent
 
 # Initialize Sub-Agents
@@ -127,10 +216,24 @@ hotel_agent_executor = create_react_agent(tool_llm, [search_hotels])
 async def attraction_search_agent(state: TravelState) -> TravelState:
     """Agent that searches for attractions using MCP."""
     destination = state.get("destination")
+    trip_plan = state.get("trip_plan")
+    
     if not destination:
         return {"attractions_info": "No destination specified for attraction search."}
 
-    prompt = f"Find top attractions and sights in {destination}. Provide a concise summary."
+    # If we have a plan, search for the specific attractions in it
+    targets = []
+    if trip_plan:
+        for day in trip_plan.itinerary:
+            for node in day.nodes:
+                if node.type in ["attraction", "activity", "sight"]:
+                    targets.append(node.name)
+    
+    if targets:
+        items = ", ".join(targets[:5]) # Search for top 5 to avoid long queries
+        prompt = f"Find details (ticket price, opening hours) for these attractions in {destination}: {items}. Provide a concise summary."
+    else:
+        prompt = f"Find top attractions and sights in {destination}. Provide a concise summary."
     
     try:
         # Invoke the sub-agent
@@ -145,11 +248,17 @@ async def attraction_search_agent(state: TravelState) -> TravelState:
 async def weather_query_agent(state: TravelState) -> TravelState:
     """Agent that queries weather using MCP."""
     destination = state.get("destination")
+    trip_plan = state.get("trip_plan")
+    
     if not destination:
         return {"weather_info": "No destination specified for weather query."}
 
     dates = state.get("travel_dates", {}) or {}
     start_date = dates.get("start", "today")
+    
+    # Use plan dates if available
+    if trip_plan and trip_plan.start_date:
+        start_date = trip_plan.start_date
     
     prompt = f"Check the weather in {destination} for {start_date}. Provide a concise summary."
 
@@ -164,6 +273,8 @@ async def weather_query_agent(state: TravelState) -> TravelState:
 async def hotel_info_agent(state: TravelState) -> TravelState:
     """Agent that searches for hotels using MCP."""
     destination = state.get("destination")
+    trip_plan = state.get("trip_plan")
+    
     if not destination:
         return {"hotel_info": "No destination specified for hotel search."}
 
@@ -171,7 +282,23 @@ async def hotel_info_agent(state: TravelState) -> TravelState:
     start_date = dates.get("start", "today")
     end_date = dates.get("end", "tomorrow")
     
-    prompt = f"Find available hotels in {destination} from {start_date} to {end_date}. Provide a concise summary."
+    if trip_plan and trip_plan.start_date and trip_plan.end_date:
+        start_date = trip_plan.start_date
+        end_date = trip_plan.end_date
+
+    # If we have a plan, check for specific hotels
+    targets = []
+    if trip_plan:
+        for day in trip_plan.itinerary:
+            for node in day.nodes:
+                if node.type in ["hotel", "accommodation", "lodging"]:
+                    targets.append(node.name)
+    
+    if targets:
+         items = ", ".join(targets[:3])
+         prompt = f"Find prices and availability for these hotels in {destination} from {start_date} to {end_date}: {items}. Provide a concise summary."
+    else:
+        prompt = f"Find available hotels in {destination} from {start_date} to {end_date}. Provide a concise summary."
 
     try:
         result = await hotel_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
