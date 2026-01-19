@@ -175,9 +175,11 @@ def refine_itinerary(state: TravelState) -> TravelState:
     system_prompt = (
         "You are a travel assistant editor. Your goal is to UPDATE an existing travel itinerary "
         "with new information gathered from external tools. "
-        "Focus on updating COSTS, TIMINGS, and DESCRIPTIONS. "
+        "Focus on updating COSTS, TIMINGS, DESCRIPTIONS, and COORDINATES. "
         "If a specific cost was found (e.g. for a hotel or ticket), update the 'cost' field "
         "of the corresponding node. "
+        "Crucially, if the tool output contains location details, you MUST populate the 'coordinates' "
+        "field (lat, lng) for each node so they can be shown on a map. "
         "Do NOT change the structure of the trip or the destinations unless necessary. "
         "Maintain the original plan as much as possible, just enrich it."
     )
@@ -206,11 +208,58 @@ from langgraph.prebuilt import create_react_agent
 
 # Initialize Sub-Agents
 # We use a smaller/faster model for these agents if configured (model_key="TOOL")
-tool_llm = get_llm(model_key="TOOL")
+tool_llm = get_llm(model_key="TOOL", model_name="Qwen/Qwen2.5-7B-Instruct")
 
-attraction_agent_executor = create_react_agent(tool_llm, [search_destinations])
-weather_agent_executor = create_react_agent(tool_llm, [get_weather])
-hotel_agent_executor = create_react_agent(tool_llm, [search_hotels])
+# Initialize separate tool lists for manual execution if needed
+from langchain_core.messages import ToolMessage
+import json
+
+async def run_simple_tool_agent(prompt: str, tools_list: list, llm) -> str:
+    """Executes a simple ReAct-style loop: LLM -> Tool -> LLM Summary.
+    
+    Robustly handles stringified tool arguments which can occur with some models.
+    """
+    llm_with_tools = llm.bind_tools(tools_list)
+    messages = [HumanMessage(content=prompt)]
+    
+    # 1. First LLM Call (Decide to call tool)
+    response = await llm_with_tools.ainvoke(messages)
+    messages.append(response)
+    
+    # 2. Execute Tools if any
+    if response.tool_calls:
+        for tc in response.tool_calls:
+            # Robust parsing of args
+            tool_args = tc["args"]
+            if isinstance(tool_args, str):
+                try:
+                    tool_args = json.loads(tool_args)
+                except json.JSONDecodeError:
+                    pass # Keep as string if parsing fails, might be just a string arg
+            
+            # Find matching tool
+            tool_name = tc["name"]
+            selected_tool = next((t for t in tools_list if t.name == tool_name), None)
+            
+            tool_output = "Tool not found."
+            if selected_tool:
+                try:
+                     # Await if async tool, else call
+                     if hasattr(selected_tool, "ainvoke"):
+                         tool_output = await selected_tool.ainvoke(tool_args)
+                     else:
+                         tool_output = selected_tool.invoke(tool_args)
+                except Exception as e:
+                    tool_output = f"Tool execution error: {e}"
+            
+            messages.append(ToolMessage(content=str(tool_output), tool_call_id=tc["id"]))
+            
+        # 3. Final Summary Call
+        final_response = await llm_with_tools.ainvoke(messages)
+        return final_response.content
+    
+    # If no tool called, return original content
+    return response.content
 
 
 async def attraction_search_agent(state: TravelState) -> TravelState:
@@ -236,11 +285,9 @@ async def attraction_search_agent(state: TravelState) -> TravelState:
         prompt = f"Find top attractions and sights in {destination}. Provide a concise summary."
     
     try:
-        # Invoke the sub-agent
-        result = await attraction_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
-        # Extract the final response from the agent
-        last_message = result["messages"][-1]
-        return {"attractions_info": last_message.content}
+        # Invoke the sub-agent using robust helper
+        content = await run_simple_tool_agent(prompt, [search_destinations], tool_llm)
+        return {"attractions_info": content}
     except Exception as e:
         return {"attractions_info": f"Failed to fetch attractions: {str(e)}"}
 
@@ -263,9 +310,8 @@ async def weather_query_agent(state: TravelState) -> TravelState:
     prompt = f"Check the weather in {destination} for {start_date}. Provide a concise summary."
 
     try:
-        result = await weather_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
-        last_message = result["messages"][-1]
-        return {"weather_info": last_message.content}
+        content = await run_simple_tool_agent(prompt, [get_weather], tool_llm)
+        return {"weather_info": content}
     except Exception as e:
         return {"weather_info": f"Failed to fetch weather: {str(e)}"}
 
@@ -301,9 +347,8 @@ async def hotel_info_agent(state: TravelState) -> TravelState:
         prompt = f"Find available hotels in {destination} from {start_date} to {end_date}. Provide a concise summary."
 
     try:
-        result = await hotel_agent_executor.ainvoke({"messages": [HumanMessage(content=prompt)]})
-        last_message = result["messages"][-1]
-        return {"hotel_info": last_message.content}
+        content = await run_simple_tool_agent(prompt, [search_hotels], tool_llm)
+        return {"hotel_info": content}
     except Exception as e:
         return {"hotel_info": f"Failed to fetch hotels: {str(e)}"}
 

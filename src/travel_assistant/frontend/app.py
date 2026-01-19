@@ -1,5 +1,8 @@
 import streamlit as st
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 import pydeck as pdk
 from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 from travel_assistant.backend.graph import graph
@@ -85,117 +88,69 @@ with tab2:
         </style>
         """, unsafe_allow_html=True)
         
-        # 2. Map Data Preparation
-        all_nodes = []
-        path_data = []
+        # 2. Daily Itinerary & Map Loop
+        amap_api_key = os.getenv("AMAP_MAPS_JS_API_KEY") or os.getenv("AMAP_MAPS_API_KEY")
+        security_code = os.getenv("AMAP_SECURITY_CODE", "")
         
-        for day in plan.itinerary:
-            day_path = []
-            for node in day.nodes:
-                if node.coordinates:
-                    # Add to scatterplot data
-                    all_nodes.append({
-                        "name": node.name,
-                        "type": node.type,
-                        "coordinates": [node.coordinates.lng, node.coordinates.lat], # PyDeck uses [lng, lat]
-                        "day": day.day,
-                        "description": node.description
-                    })
-                    # Add to path data
-                    day_path.append([node.coordinates.lng, node.coordinates.lat])
-            
-            if len(day_path) > 1:
-                path_data.append({
-                    "path": day_path,
-                    "day": day.day,
-                    "color": [255, 75, 75] # Red color
-                })
-
-        # 3. Render Map
-        if all_nodes:
-            # Calculate initial view state
-            if all_nodes:
-                initial_lat = all_nodes[0]["coordinates"][1]
-                initial_lng = all_nodes[0]["coordinates"][0]
-            else:
-                initial_lat = 0
-                initial_lng = 0
-                
-            view_state = pdk.ViewState(
-                latitude=initial_lat,
-                longitude=initial_lng,
-                zoom=11,
-                pitch=45,
-            )
-            
-            # Layers
-            scatter_layer = pdk.Layer(
-                "ScatterplotLayer",
-                data=all_nodes,
-                get_position="coordinates",
-                get_color=[255, 75, 75, 200],
-                get_radius=200,
-                pickable=True,
-                auto_highlight=True,
-            )
-            
-            path_layer = pdk.Layer(
-                "PathLayer",
-                data=path_data,
-                get_path="path",
-                get_color="color",
-                width_scale=20,
-                width_min_pixels=2,
-                pickable=True,
-            )
-            
-            text_layer = pdk.Layer(
-                "TextLayer",
-                data=all_nodes,
-                get_position="coordinates",
-                get_text="name",
-                get_color=[0, 0, 0, 200],
-                get_size=15,
-                get_angle=0,
-                get_text_anchor="middle",
-                get_alignment_baseline="center",
-                pixel_offset=[0, -20] # Offset text above point
-            )
-
-            r = pdk.Deck(
-                layers=[path_layer, scatter_layer, text_layer],
-                initial_view_state=view_state,
-                tooltip={"text": "{name}\nType: {type}\nDay: {day}"},
-                map_style="mapbox://styles/mapbox/light-v9"
-            )
-            
-            st.pydeck_chart(r)
-        else:
-            st.info("No location data available for map visualization.")
-
-        st.divider()
-
-        # 4. Itinerary Cards
-        st.subheader("Daily Itinerary")
+        if not amap_api_key:
+            st.error("AMAP API Key not found. Maps cannot be rendered.")
         
+        from travel_assistant.frontend.amap_component import render_amap_html
+        import streamlit.components.v1 as components
+
         for day in plan.itinerary:
             st.markdown(f"### Day {day.day}: {day.summary}")
             
-            for node in day.nodes:
-                cost_html = f'<span class="itinerary-cost">{node.cost}</span>' if node.cost else ""
-                start_time = node.start_time if node.start_time else ""
-                end_time = f"- {node.end_time}" if node.end_time else ""
-                time_str = f"{start_time} {end_time}"
+            col_map, col_cards = st.columns([1.2, 1]) # Map gets slightly more width
+            
+            with col_map:
+                # Prepare data for this day
+                day_markers = []
+                day_path = []
                 
-                st.markdown(f"""
-                <div class="itinerary-card">
-                    {cost_html}
-                    <div class="itinerary-type">{node.type or 'Activity'}</div>
-                    <div class="itinerary-title">{node.name}</div>
-                    <div class="itinerary-time">{time_str}</div>
-                    <div style="margin-top: 10px;">{node.description}</div>
-                </div>
-                """, unsafe_allow_html=True)
+                for node in day.nodes:
+                    if node.coordinates:
+                        # Amap expects [lng, lat]
+                        pos = [node.coordinates.lng, node.coordinates.lat]
+                        day_markers.append({
+                            "position": pos,
+                            "title": node.name,
+                            "content": f"{node.type}: {node.name}"
+                        })
+                        day_path.append(pos)
+                
+                if day_markers and amap_api_key:
+                    day_html = render_amap_html(
+                        api_key=amap_api_key,
+                        markers=day_markers,
+                        path_coordinates=day_path,
+                        height=400, # Per-day map height
+                        security_code=security_code
+                    )
+                    components.html(day_html, height=400)
+                elif not day_markers:
+                    st.info("No location data for this day.")
+                else:
+                     st.warning("Map unavailable")
+
+            with col_cards:
+                 for node in day.nodes:
+                    cost_html = f'<span class="itinerary-cost">{node.cost}</span>' if node.cost else ""
+                    start_time = node.start_time if node.start_time else ""
+                    end_time = f"- {node.end_time}" if node.end_time else ""
+                    time_str = f"{start_time} {end_time}"
+                    
+                    st.markdown(f"""
+                    <div class="itinerary-card">
+                        {cost_html}
+                        <div class="itinerary-type">{node.type or 'Activity'}</div>
+                        <div class="itinerary-title">{node.name}</div>
+                        <div class="itinerary-time">{time_str}</div>
+                        <div style="margin-top: 10px; font-size: 0.9em;">{node.description}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+            
+            st.divider()
 
 # User input
 if prompt := st.chat_input("Where do you want to go?"):
@@ -224,20 +179,24 @@ if prompt := st.chat_input("Where do you want to go?"):
                 
                 new_msg_count = len(final_messages) - len(st.session_state.messages)
                 
+                should_rerun = False
+                
+                # 1. Update Messages
                 if new_msg_count > 0:
                     new_messages = final_messages[-new_msg_count:]
                     for msg in new_messages:
                         if isinstance(msg, AIMessage):
-                            st.markdown(msg.content)
                             st.session_state.messages.append(msg)
+                    should_rerun = True
                 
-                # Update trip plan if available
-                # The graph returns the state, so we check if 'trip_plan' is in it
+                # 2. Update Trip Plan
                 if response.get("trip_plan"):
-                    # Only update if it's different or new
                     if st.session_state.trip_plan != response["trip_plan"]:
                         st.session_state.trip_plan = response["trip_plan"]
-                        st.rerun() # Rerun to update sidebar
+                        should_rerun = True
+                
+                if should_rerun:
+                    st.rerun()
                     
             except Exception as e:
                 st.error(f"An error occurred: {e}")
