@@ -24,7 +24,8 @@ def process_input(state: TravelState) -> TravelState:
     Returns:
         Updated state with extracted information.
     """
-    llm = get_llm(structured_output=InputSchema)
+    llm = get_llm(structured_output=InputSchema, model_name="Pro/zai-org/GLM-4.7")
+    
     
     # Format conversation history
     history = "\n".join([f"{msg.type}: {msg.content}" for msg in state["messages"]])
@@ -64,7 +65,7 @@ def plan_itinerary(state: TravelState) -> TravelState:
     Returns:
         Updated state with itinerary information.
     """
-    structured_llm = get_llm(structured_output=TripSchema)
+    structured_llm = get_llm(structured_output=TripSchema, model_name="Pro/zai-org/GLM-4.7")
 
     destination = state.get("destination", "determined by the AI")
     dates = state.get("travel_dates", {})
@@ -170,7 +171,7 @@ def refine_itinerary(state: TravelState) -> TravelState:
     if not (attractions_info or weather_info or hotel_info):
         return {}
         
-    llm = get_llm(structured_output=TripSchema)
+    llm = get_llm(structured_output=TripSchema, model_name="Pro/zai-org/GLM-4.7")
     
     system_prompt = (
         "You are a travel assistant editor. Your goal is to UPDATE an existing travel itinerary "
@@ -205,61 +206,7 @@ def refine_itinerary(state: TravelState) -> TravelState:
 
 
 from langgraph.prebuilt import create_react_agent
-
-# Initialize Sub-Agents
-# We use a smaller/faster model for these agents if configured (model_key="TOOL")
-tool_llm = get_llm(model_key="TOOL", model_name="Qwen/Qwen2.5-7B-Instruct")
-
-# Initialize separate tool lists for manual execution if needed
-from langchain_core.messages import ToolMessage
-import json
-
-async def run_simple_tool_agent(prompt: str, tools_list: list, llm) -> str:
-    """Executes a simple ReAct-style loop: LLM -> Tool -> LLM Summary.
-    
-    Robustly handles stringified tool arguments which can occur with some models.
-    """
-    llm_with_tools = llm.bind_tools(tools_list)
-    messages = [HumanMessage(content=prompt)]
-    
-    # 1. First LLM Call (Decide to call tool)
-    response = await llm_with_tools.ainvoke(messages)
-    messages.append(response)
-    
-    # 2. Execute Tools if any
-    if response.tool_calls:
-        for tc in response.tool_calls:
-            # Robust parsing of args
-            tool_args = tc["args"]
-            if isinstance(tool_args, str):
-                try:
-                    tool_args = json.loads(tool_args)
-                except json.JSONDecodeError:
-                    pass # Keep as string if parsing fails, might be just a string arg
-            
-            # Find matching tool
-            tool_name = tc["name"]
-            selected_tool = next((t for t in tools_list if t.name == tool_name), None)
-            
-            tool_output = "Tool not found."
-            if selected_tool:
-                try:
-                     # Await if async tool, else call
-                     if hasattr(selected_tool, "ainvoke"):
-                         tool_output = await selected_tool.ainvoke(tool_args)
-                     else:
-                         tool_output = selected_tool.invoke(tool_args)
-                except Exception as e:
-                    tool_output = f"Tool execution error: {e}"
-            
-            messages.append(ToolMessage(content=str(tool_output), tool_call_id=tc["id"]))
-            
-        # 3. Final Summary Call
-        final_response = await llm_with_tools.ainvoke(messages)
-        return final_response.content
-    
-    # If no tool called, return original content
-    return response.content
+from travel_assistant.backend.agents.tools import run_simple_tool_agent, tool_llm
 
 
 async def attraction_search_agent(state: TravelState) -> TravelState:
@@ -272,7 +219,7 @@ async def attraction_search_agent(state: TravelState) -> TravelState:
 
     # If we have a plan, search for the specific attractions in it
     targets = []
-    if trip_plan:
+    if trip_plan and hasattr(trip_plan, "itinerary") and trip_plan.itinerary:
         for day in trip_plan.itinerary:
             for node in day.nodes:
                 if node.type in ["attraction", "activity", "sight"]:
@@ -334,7 +281,7 @@ async def hotel_info_agent(state: TravelState) -> TravelState:
 
     # If we have a plan, check for specific hotels
     targets = []
-    if trip_plan:
+    if trip_plan and hasattr(trip_plan, "itinerary") and trip_plan.itinerary:
         for day in trip_plan.itinerary:
             for node in day.nodes:
                 if node.type in ["hotel", "accommodation", "lodging"]:
