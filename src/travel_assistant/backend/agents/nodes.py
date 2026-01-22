@@ -1,6 +1,7 @@
 """Node definitions for the travel assistant graph."""
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+import datetime
 
 from travel_assistant.backend.config import get_llm
 from travel_assistant.backend.prompts import INPUT_EXTRACTION_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT, RESPONSE_SYSTEM_PROMPT, get_planner_user_prompt
@@ -28,12 +29,15 @@ def process_input(state: TravelState) -> TravelState:
     
     
     # Format conversation history
+    # Format conversation history
     history = "\n".join([f"{msg.type}: {msg.content}" for msg in state["messages"]])
+    
+    current_date = datetime.datetime.now().strftime("%Y-%m-%d")
     
     try:
         extraction = llm.invoke([
             SystemMessage(content=INPUT_EXTRACTION_SYSTEM_PROMPT),
-            HumanMessage(content=f"Conversation History:\n{history}")
+            HumanMessage(content=f"Current Date: {current_date}\n\nConversation History:\n{history}")
         ])
         
         updates = {}
@@ -41,6 +45,8 @@ def process_input(state: TravelState) -> TravelState:
             updates["destination"] = extraction.destination
         if extraction.start_date and extraction.end_date:
             updates["travel_dates"] = {"start": extraction.start_date, "end": extraction.end_date}
+        if extraction.budget:
+            updates["budget"] = extraction.budget
         if extraction.interests:
             updates["preferences"] = {"interests": extraction.interests}
             
@@ -69,11 +75,12 @@ def plan_itinerary(state: TravelState) -> TravelState:
 
     destination = state.get("destination", "determined by the AI")
     dates = state.get("travel_dates", {})
+    budget = state.get("budget")
     preferences = state.get("preferences", {})
     feedback = state.get("planner_feedback")
     
     system_prompt = PLANNER_SYSTEM_PROMPT
-    user_prompt = get_planner_user_prompt(destination, dates, preferences, feedback)
+    user_prompt = get_planner_user_prompt(destination, dates, budget, preferences, feedback)
 
     try:
         trip_plan = structured_llm.invoke([
@@ -131,8 +138,11 @@ def validate_budget(state: TravelState) -> TravelState:
         
     budget_str = trip_plan.budget
     if not budget_str:
-        # No budget specified in the plan (maybe user didn't provide one?)
-        # We can try falling back to initial input, but for now we assume it's OK
+        # Fallback to state budget if not in plan
+        budget_str = state.get("budget")
+        
+    if not budget_str:
+        # No budget specified at all
         return {"budget_status": "OK"}
         
     budget_limit = parse_cost(budget_str)
@@ -231,6 +241,8 @@ async def attraction_search_agent(state: TravelState) -> TravelState:
     else:
         prompt = f"Find top attractions and sights in {destination}. Provide a concise summary."
     
+    print(f"DEBUG - Attraction Agent Prompt: {prompt}")
+
     try:
         # Invoke the sub-agent using robust helper
         content = await run_simple_tool_agent(prompt, [search_destinations], tool_llm)
@@ -255,6 +267,8 @@ async def weather_query_agent(state: TravelState) -> TravelState:
         start_date = trip_plan.start_date
     
     prompt = f"Check the weather in {destination} for {start_date}. Provide a concise summary."
+
+    print(f"DEBUG - Weather Agent Prompt: {prompt}")
 
     try:
         content = await run_simple_tool_agent(prompt, [get_weather], tool_llm)
@@ -292,6 +306,8 @@ async def hotel_info_agent(state: TravelState) -> TravelState:
          prompt = f"Find prices and availability for these hotels in {destination} from {start_date} to {end_date}: {items}. Provide a concise summary."
     else:
         prompt = f"Find available hotels in {destination} from {start_date} to {end_date}. Provide a concise summary."
+
+    print(f"DEBUG - Hotel Agent Prompt: {prompt}")
 
     try:
         content = await run_simple_tool_agent(prompt, [search_hotels], tool_llm)

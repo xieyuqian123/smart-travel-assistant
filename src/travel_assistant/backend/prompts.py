@@ -26,6 +26,7 @@ RESPONSE_SYSTEM_PROMPT = (
 def get_planner_user_prompt(
     destination: str, 
     dates: dict | None = None, 
+    budget: str | None = None,
     preferences: dict | None = None,
     feedback: str | None = None
 ) -> str:
@@ -42,6 +43,8 @@ def get_planner_user_prompt(
     user_prompt = f"Destination: {destination}\n"
     if dates:
         user_prompt += f"Dates: {dates}\n"
+    if budget:
+        user_prompt += f"Budget: {budget}\n"
     if preferences:
         user_prompt += f"Preferences: {preferences}\n"
     if feedback:

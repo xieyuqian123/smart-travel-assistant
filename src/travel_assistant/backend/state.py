@@ -25,6 +25,7 @@ class TravelState(TypedDict):
     attractions_info: str | None
     weather_info: str | None
     hotel_info: str | None
+    budget: str | None
     budget_status: str | None
     planner_feedback: str | None
     planning_retries: int
