@@ -55,7 +55,7 @@ cp .env.example .env
 To launch the interactive web interface:
 
 ```bash
-uv run streamlit run src/travel_assistant/app.py
+uv run streamlit run src/travel_assistant/frontend/app.py
 ```
 
 ### Programmatic Usage

@@ -28,5 +28,6 @@ class TravelState(TypedDict):
     budget: str | None
     budget_status: str | None
     planner_feedback: str | None
+    user_feedback: str | None
     planning_retries: int
 

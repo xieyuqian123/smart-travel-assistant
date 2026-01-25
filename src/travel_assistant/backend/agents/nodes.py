@@ -4,7 +4,13 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 import datetime
 
 from travel_assistant.backend.config import get_llm
-from travel_assistant.backend.prompts import INPUT_EXTRACTION_SYSTEM_PROMPT, PLANNER_SYSTEM_PROMPT, RESPONSE_SYSTEM_PROMPT, get_planner_user_prompt
+from travel_assistant.backend.prompts import (
+    INPUT_EXTRACTION_SYSTEM_PROMPT, 
+    PLANNER_SYSTEM_PROMPT, 
+    RESPONSE_SYSTEM_PROMPT, 
+    PLANNER_MODIFICATION_SYSTEM_PROMPT,
+    get_planner_user_prompt
+)
 from travel_assistant.backend.schemas import InputSchema, TripSchema
 from travel_assistant.backend.state import TravelState
 from travel_assistant.backend.tools import search_destinations, get_weather, search_hotels
@@ -18,6 +24,7 @@ def process_input(state: TravelState) -> TravelState:
     - Destination
     - Travel dates
     - Preferences
+    - User modification requests (if plan exists)
 
     Args:
         state: The current graph state.
@@ -27,8 +34,6 @@ def process_input(state: TravelState) -> TravelState:
     """
     llm = get_llm(structured_output=InputSchema, model_name="Pro/zai-org/GLM-4.7")
     
-    
-    # Format conversation history
     # Format conversation history
     history = "\n".join([f"{msg.type}: {msg.content}" for msg in state["messages"]])
     
@@ -50,6 +55,16 @@ def process_input(state: TravelState) -> TravelState:
         if extraction.interests:
             updates["preferences"] = {"interests": extraction.interests}
             
+        # Check if this is a modification request
+        # If we already have a plan, and the user input is treated as "interests" or just general conversational, 
+        # it might be feedback.
+        # But for robustness, let's assume if there's a plan, the latest message is potential feedback.
+        if state.get("trip_plan"):
+             # Get the latest human message content
+             last_msg = state["messages"][-1]
+             if isinstance(last_msg, HumanMessage):
+                 updates["user_feedback"] = last_msg.content
+            
         return updates
         
     except Exception as e:
@@ -64,6 +79,8 @@ def plan_itinerary(state: TravelState) -> TravelState:
     - Daily activities
     - Recommended accommodations
     - Restaurant suggestions
+    
+    It supports creating NEW plans and MODIFYING existing plans.
 
     Args:
         state: The current graph state.
@@ -79,15 +96,33 @@ def plan_itinerary(state: TravelState) -> TravelState:
     preferences = state.get("preferences", {})
     feedback = state.get("planner_feedback")
     
-    system_prompt = PLANNER_SYSTEM_PROMPT
-    user_prompt = get_planner_user_prompt(destination, dates, budget, preferences, feedback)
+    # Modification Logic
+    trip_plan_obj = state.get("trip_plan")
+    user_feedback = state.get("user_feedback")
+    
+    if trip_plan_obj and user_feedback:
+        # Modification Flow
+        system_prompt = PLANNER_MODIFICATION_SYSTEM_PROMPT
+        user_prompt = get_planner_user_prompt(
+            destination, 
+            dates, 
+            budget, 
+            preferences, 
+            feedback,
+            existing_plan=trip_plan_obj.model_dump_json(),
+            user_feedback=user_feedback
+        )
+    else:
+        # Creation Flow
+        system_prompt = PLANNER_SYSTEM_PROMPT
+        user_prompt = get_planner_user_prompt(destination, dates, budget, preferences, feedback)
 
     try:
         trip_plan = structured_llm.invoke([
             SystemMessage(content=system_prompt),
             HumanMessage(content=user_prompt)
         ])
-        return {"trip_plan": trip_plan}
+        return {"trip_plan": trip_plan, "user_feedback": None} # Clear feedback after processing
     except Exception as e:
         # In a real app, handle error gracefully
         print(f"Error generating itinerary: {e}")
@@ -125,41 +160,16 @@ def generate_response(state: TravelState) -> TravelState:
 
 def validate_budget(state: TravelState) -> TravelState:
     """Validate if the trip plan is within budget.
+    
+    NOTE: As per user request, strict budget validation is disabled to focus on planning.
+    This node now just passes through.
 
     Args:
         state: The current graph state.
 
     Returns:
-        Updated state with budget status and feedback.
+        Updated state with budget status OK.
     """
-    trip_plan = state.get("trip_plan")
-    if not trip_plan:
-        return {"budget_status": "NO_PLAN"}
-        
-    budget_str = trip_plan.budget
-    if not budget_str:
-        # Fallback to state budget if not in plan
-        budget_str = state.get("budget")
-        
-    if not budget_str:
-        # No budget specified at all
-        return {"budget_status": "OK"}
-        
-    budget_limit = parse_cost(budget_str)
-    if budget_limit <= 0:
-        return {"budget_status": "OK"} # Treat invalid budget as no limit
-        
-    total_cost = calculate_itinerary_cost(trip_plan)
-    
-    retries = state.get("planning_retries", 0)
-    
-    if total_cost > budget_limit:
-        return {
-            "budget_status": "OVER_BUDGET",
-            "planner_feedback": f"The current plan costs {total_cost}, which exceeds the budget of {budget_limit}. Please revise the itinerary to reduce costs (e.g., cheaper hotels, fewer expensive activities).",
-            "planning_retries": retries + 1
-        }
-    
     return {"budget_status": "OK"}
 
 

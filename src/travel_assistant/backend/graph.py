@@ -44,19 +44,7 @@ builder.add_edge("hotel_info_agent", "refine_itinerary")
 
 builder.add_edge("refine_itinerary", "validate_budget")
 
-def should_replan(state: TravelState) -> str:
-    """Determine immediate next step based on budget status."""
-    status = state.get("budget_status")
-    retries = state.get("planning_retries", 0)
-    
-    if status == "OVER_BUDGET" and retries < 3:
-        return "plan_itinerary"
-    return "generate_response"
-
-builder.add_conditional_edges(
-    "validate_budget",
-    should_replan
-)
+builder.add_edge("validate_budget", "generate_response")
 
 builder.add_edge("generate_response", END)
 

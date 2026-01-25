@@ -17,6 +17,7 @@ dependencies = [
     "mcp",
     "amap-mcp-server",
     "pydeck>=0.9.1",
+    "langgraph-checkpoint-sqlite>=1.0.0",
 ]
 
 [project.optional-dependencies]

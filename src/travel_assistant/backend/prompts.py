@@ -7,9 +7,19 @@ PLANNER_SYSTEM_PROMPT = (
     "Keep descriptions concise and to the point to ensure the full itinerary fits within the response limit."
 )
 
+PLANNER_MODIFICATION_SYSTEM_PROMPT = (
+    "You are an expert travel assistant editor. Your goal is to MODIFY an existing travel itinerary "
+    "based on the user's specific feedback or request. "
+    "Do NOT change parts of the itinerary that don't need changing. "
+    "Ensure the JSON structure remains valid and follows the schema. "
+    "If the user asks to add something, integrate it logically into the schedule. "
+    "If the user asks to remove something, find a suitable replacement or adjust timings."
+)
+
 INPUT_EXTRACTION_SYSTEM_PROMPT = (
     "You are a helpful travel assistant. Your goal is to extract travel details "
     "from the conversation history. Extract the destination, travel dates, budget, and interests. "
+    "Check if the user is asking to modify an existing plan or creating a new one. "
     "IMPORTANT: Convert all dates to YYYY-MM-DD format. If relative dates like 'next week' are used, "
     "calculate them based on the current context or assume upcoming dates. "
     "If any information is missing, leave it as null."
@@ -28,7 +38,9 @@ def get_planner_user_prompt(
     dates: dict | None = None, 
     budget: str | None = None,
     preferences: dict | None = None,
-    feedback: str | None = None
+    feedback: str | None = None,
+    existing_plan: str | None = None,
+    user_feedback: str | None = None
 ) -> str:
     """Construct the user prompt for the planner.
 
@@ -36,10 +48,19 @@ def get_planner_user_prompt(
         destination: The travel destination.
         dates: Optional dictionary containing start and end dates.
         preferences: Optional dictionary containing user preferences.
+        existing_plan: Optional JSON string of the existing plan.
+        user_feedback: Optional string of specific user feedback/request.
 
     Returns:
         Formatted user prompt string.
     """
+    if existing_plan and user_feedback:
+        return (
+            f"Existing Plan: {existing_plan}\n\n"
+            f"User Modification Request: {user_feedback}\n\n"
+            "Please output the modified TripSchema."
+        )
+
     user_prompt = f"Destination: {destination}\n"
     if dates:
         user_prompt += f"Dates: {dates}\n"

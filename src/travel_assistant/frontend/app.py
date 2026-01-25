@@ -27,6 +27,10 @@ if not api_key:
             st.stop()
 
 # Initialize session state
+import uuid
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = str(uuid.uuid4())
+
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -163,39 +167,37 @@ if prompt := st.chat_input("Where do you want to go?"):
         with st.spinner("Thinking..."):
             try:
                 # Invoke the graph using asyncio for async node support
-                # We pass the full history of messages
-                # Note: In a real production app, you might want to manage state more carefully
-                # to avoid context window limits.
                 import asyncio
-                response = asyncio.run(graph.ainvoke({"messages": st.session_state.messages}))
+                from travel_assistant.backend.memory.checkpointer import get_async_checkpointer
+                from travel_assistant.backend.graph import builder
+                
+                async def run_chat():
+                    async with get_async_checkpointer() as checkpointer:
+                         # Compile graph with checkpointer at runtime
+                         graph_run = builder.compile(checkpointer=checkpointer)
+                         
+                         # Use persistent config
+                         config = {"configurable": {"thread_id": st.session_state.thread_id}}
+                         
+                         # Only pass the NEW message, let checkpointer handle history
+                         inputs = {"messages": [HumanMessage(content=prompt)]}
+                         
+                         return await graph_run.ainvoke(inputs, config=config)
+
+                response = asyncio.run(run_chat())
                 
                 # Get the returned messages
                 final_messages = response["messages"]
                 
-                # Find new messages by comparing length
-                # This assumes LangGraph appends messages to the input list
-                # However, since we passed st.session_state.messages (which we just appended to),
-                # the result should contain those plus new ones.
+                if final_messages:
+                    last_msg = final_messages[-1]
+                    if isinstance(last_msg, AIMessage):
+                        st.session_state.messages.append(last_msg)
+                        st.markdown(last_msg.content)
                 
-                new_msg_count = len(final_messages) - len(st.session_state.messages)
-                
-                should_rerun = False
-                
-                # 1. Update Messages
-                if new_msg_count > 0:
-                    new_messages = final_messages[-new_msg_count:]
-                    for msg in new_messages:
-                        if isinstance(msg, AIMessage):
-                            st.session_state.messages.append(msg)
-                    should_rerun = True
-                
-                # 2. Update Trip Plan
+                # Update Trip Plan
                 if response.get("trip_plan"):
-                    if st.session_state.trip_plan != response["trip_plan"]:
-                        st.session_state.trip_plan = response["trip_plan"]
-                        should_rerun = True
-                
-                if should_rerun:
+                    st.session_state.trip_plan = response["trip_plan"]
                     st.rerun()
                     
             except Exception as e:
