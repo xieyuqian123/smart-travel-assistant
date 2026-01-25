@@ -48,8 +48,16 @@ def process_input(state: TravelState) -> TravelState:
         updates = {}
         if extraction.destination:
             updates["destination"] = extraction.destination
+            
         if extraction.start_date and extraction.end_date:
             updates["travel_dates"] = {"start": extraction.start_date, "end": extraction.end_date}
+        else:
+            # Fallback to current date if not specified
+            # We assume a 3-day trip if not specified, starting today
+            end_date_obj = datetime.datetime.now() + datetime.timedelta(days=2)
+            end_date = end_date_obj.strftime("%Y-%m-%d")
+            updates["travel_dates"] = {"start": current_date, "end": end_date}
+            
         if extraction.budget:
             updates["budget"] = extraction.budget
         if extraction.interests:
@@ -95,6 +103,7 @@ def plan_itinerary(state: TravelState) -> TravelState:
     budget = state.get("budget")
     preferences = state.get("preferences", {})
     feedback = state.get("planner_feedback")
+    weather_info = state.get("weather_info")
     
     # Modification Logic
     trip_plan_obj = state.get("trip_plan")
@@ -110,12 +119,13 @@ def plan_itinerary(state: TravelState) -> TravelState:
             preferences, 
             feedback,
             existing_plan=trip_plan_obj.model_dump_json(),
-            user_feedback=user_feedback
+            user_feedback=user_feedback,
+            weather_info=weather_info
         )
     else:
         # Creation Flow
         system_prompt = PLANNER_SYSTEM_PROMPT
-        user_prompt = get_planner_user_prompt(destination, dates, budget, preferences, feedback)
+        user_prompt = get_planner_user_prompt(destination, dates, budget, preferences, feedback, weather_info=weather_info)
 
     try:
         trip_plan = structured_llm.invoke([

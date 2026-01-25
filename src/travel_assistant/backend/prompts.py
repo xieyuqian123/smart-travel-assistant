@@ -4,7 +4,10 @@ PLANNER_SYSTEM_PROMPT = (
     "You are an expert travel assistant. Create a detailed travel itinerary "
     "based on the user's destination, dates, and preferences. "
     "Ensure the response follows the given schema. "
-    "Keep descriptions concise and to the point to ensure the full itinerary fits within the response limit."
+    "Keep descriptions concise and to the point to ensure the full itinerary fits within the response limit. "
+    "CONSIDER WEATHER: Use the provided weather information to plan activities. "
+    "If it's raining, prioritize indoor activities (museums, malls). "
+    "If weather is good, prioritize outdoor activities."
 )
 
 PLANNER_MODIFICATION_SYSTEM_PROMPT = (
@@ -40,7 +43,8 @@ def get_planner_user_prompt(
     preferences: dict | None = None,
     feedback: str | None = None,
     existing_plan: str | None = None,
-    user_feedback: str | None = None
+    user_feedback: str | None = None,
+    weather_info: str | None = None
 ) -> str:
     """Construct the user prompt for the planner.
 
@@ -50,6 +54,7 @@ def get_planner_user_prompt(
         preferences: Optional dictionary containing user preferences.
         existing_plan: Optional JSON string of the existing plan.
         user_feedback: Optional string of specific user feedback/request.
+        weather_info: Optional string containing weather forecast.
 
     Returns:
         Formatted user prompt string.
@@ -68,6 +73,8 @@ def get_planner_user_prompt(
         user_prompt += f"Budget: {budget}\n"
     if preferences:
         user_prompt += f"Preferences: {preferences}\n"
+    if weather_info:
+        user_prompt += f"Weather Forecast: {weather_info}\n"
     if feedback:
         user_prompt += f"\nIMPORTANT FEEDBACK FROM PREVIOUS ATTEMPT:\n{feedback}\n"
     return user_prompt

@@ -30,16 +30,15 @@ builder.add_node("generate_response", generate_response)
 # Define the graph flow
 # Define the graph flow
 builder.set_entry_point("process_input")
-builder.add_edge("process_input", "plan_itinerary")
+builder.add_edge("process_input", "weather_query_agent")
+builder.add_edge("weather_query_agent", "plan_itinerary")
 
 # Parallelize agents: Fan-out from planner
 builder.add_edge("plan_itinerary", "attraction_search_agent")
-builder.add_edge("plan_itinerary", "weather_query_agent")
 builder.add_edge("plan_itinerary", "hotel_info_agent")
 
 # Fan-in to refine_itinerary
 builder.add_edge("attraction_search_agent", "refine_itinerary")
-builder.add_edge("weather_query_agent", "refine_itinerary")
 builder.add_edge("hotel_info_agent", "refine_itinerary")
 
 builder.add_edge("refine_itinerary", "validate_budget")
